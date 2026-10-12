@@ -1,0 +1,62 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports: ["5672:5672", "15672:15672"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  seaweedfs:
+    image: chrislusf/seaweedfs
+    command: server -s3 -dir=/data -ip.bind=0.0.0.0
+    ports: ["8333:8333"]
+    volumes:
+      - seaweedfs-data:/data
+
+  mailpit:
+    image: axllent/mailpit
+    ports: ["8025:8025", "1025:1025"]
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    ports: ["8000:8000"]
+    env_file: .env
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      seaweedfs: { condition: service_started }
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    env_file: .env
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      seaweedfs: { condition: service_started }
+    # escale com: docker compose up --scale worker=3 --no-recreate
+
+  notifier:
+    build:
+      context: .
+      dockerfile: notifier/Dockerfile
+    env_file: .env
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+
+  frontend:
+    build: ./frontend
+    ports: ["8080:80"]
+    depends_on: [api]
+
+volumes:
+  seaweedfs-data:
